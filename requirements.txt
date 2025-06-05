@@ -8,24 +8,24 @@ Pillow==10.1.0
 # File handling
 python-multipart==0.0.6
 
-# HTTP requests (if needed for health checks)
+# HTTP requests
 httpx==0.25.2
 
 # Async support
 aiofiles==23.2.1
 
 # Real-ESRGAN Python version
-realesrgan==0.3.0
+realesrgan
 
-# Computer vision for Python Real-ESRGAN
-opencv-python==4.8.1.78
+# Computer vision
+opencv-python-headless
 
-# PyTorch for Real-ESRGAN (CPU version for memory efficiency)
-torch==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision==0.16.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# PyTorch CPU version for efficiency
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Numerical processing
-numpy==1.24.3
+numpy
 
-# Optional: for better performance
+# Optional: better performance
 python-json-logger==2.0.7
