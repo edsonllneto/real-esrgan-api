@@ -1,43 +1,50 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+import os
 from PIL import Image
-import base64
-import io
-from realesrgan import RealESRGAN
 import torch
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from realesrgan import RealESRGANer
 
 app = Flask(__name__)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = RealESRGAN(device, scale=4)
-model.load_weights('RealESRGAN_x4plus.pth', download=True)
+# Inicializa o modelo
+model_path = '/realesrgan/weights/RealESRGAN_x4plus.pth'
 
-@app.route("/inference", methods=["POST"])
-def upscale():
-    data = request.json.get("input", {})
-    image_b64 = data.get("source_image")
-    face_enhance = data.get("face_enhance", False)
+if not os.path.exists(model_path):
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    os.system(f"gdown --id 1rbSTGKAE-MTxBYHd-51l2hMOQPT_7EPy -O {model_path}")
 
-    if not image_b64:
-        return jsonify({"error": "Missing source_image"}), 400
+# Rede base
+model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64,
+                num_block=23, num_grow_ch=32, scale=4)
 
-    try:
-        image_data = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_data)).convert("RGB")
+upscaler = RealESRGANer(
+    scale=4,
+    model_path=model_path,
+    model=model,
+    tile=0,
+    tile_pad=10,
+    pre_pad=0,
+    half=True if torch.cuda.is_available() else False
+)
 
-        sr_image = model.predict(image)
-
-        buffer = io.BytesIO()
-        sr_image.save(buffer, format="PNG")
-        buffer.seek(0)
-        sr_b64 = base64.b64encode(buffer.read()).decode("utf-8")
-
-        return jsonify({"result": sr_b64})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/", methods=["GET"])
-def home():
+@app.route('/')
+def index():
     return "Real-ESRGAN API is running"
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+@app.route('/upscale', methods=['POST'])
+def upscale():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+
+    img = Image.open(request.files['image']).convert('RGB')
+    img.save('input.png')
+
+    output, _ = upscaler.enhance(img)
+    output_path = 'output.png'
+    output.save(output_path)
+
+    return send_file(output_path, mimetype='image/png')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
