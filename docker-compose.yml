@@ -14,15 +14,15 @@ services:
     volumes:
       # Optional: mount temp directory for debugging
       - ./temp:/app/temp
-    memory: 2.5g
+    memory: 3g
     cpus: '2.0'
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=10)"]
+      interval: 60s
+      timeout: 15s
       retries: 3
-      start_period: 30s
+      start_period: 60s
 
   # Optional: Nginx reverse proxy for production
   nginx:
