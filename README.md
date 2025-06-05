@@ -20,7 +20,7 @@ AI-powered image upscaling API using Real-ESRGAN NCNN-Vulkan backend, optimized 
 
 ## 🚀 Quick Deploy to EasyPanel
 
-### Method 1: Direct GitHub Deploy (Recommended)
+### ✅ Ready to Deploy (Fixed!)
 
 1. **Login to EasyPanel**
 2. **Create New Service** → **GitHub Repository**
@@ -31,11 +31,7 @@ AI-powered image upscaling API using Real-ESRGAN NCNN-Vulkan backend, optimized 
 7. **CPU Limit**: `1-2 cores`
 8. **Deploy** 🎉
 
-### Method 2: Docker Hub (Alternative)
-
-```bash
-docker run -p 8000:8000 --memory=2.5g your-dockerhub/real-esrgan-api
-```
+*The Dockerfile has been fixed and should build without errors!*
 
 ## 📋 System Requirements
 
@@ -113,6 +109,9 @@ Content-Type: multipart/form-data
 
 ### Using cURL
 ```bash
+# Health check
+curl http://your-server:8000/health
+
 # Upload and upscale image
 curl -X POST "http://your-server:8000/upscale" \
   -F "file=@your-image.jpg" \
@@ -185,17 +184,21 @@ For VPS with limited RAM, the API automatically:
 
 ### Common Issues
 
-**1. Out of Memory**
-- Reduce tile size in upscaler.py
+**1. Build Errors**
+- ✅ Fixed: Dockerfile updated to use minimal dependencies
+- ✅ Should build without package errors now
+
+**2. Out of Memory**
 - Ensure 2.5GB+ available RAM
 - Use only 1 worker
+- Check system memory usage
 
-**2. Slow Processing**
+**3. Slow Processing**
 - Check CPU cores (2+ recommended)
 - Verify image size (<2MB)
 - Monitor system load
 
-**3. Model Not Found**
+**4. Model Not Found**
 - Check if models downloaded correctly
 - Verify models/ directory exists
 - Use default model: "realesrgan-x4plus"
@@ -245,11 +248,12 @@ curl http://your-server:8000/health
 git clone https://github.com/edsonllneto/real-esrgan-api
 cd real-esrgan-api
 
-# Install dependencies
-pip install -r requirements.txt
+# Build and run with Docker
+docker build -t real-esrgan-api .
+docker run -p 8000:8000 --memory=2.5g real-esrgan-api
 
-# Run locally (after downloading binaries)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Or use docker-compose
+docker-compose up
 ```
 
 ## 🤝 Contributing
@@ -273,5 +277,7 @@ MIT License - see LICENSE file for details.
 ---
 
 **Made with ❤️ for low-resource VPS deployments**
+
+🎉 **Now ready for one-click deployment to EasyPanel!**
 
 Need help? Open an issue on GitHub!
