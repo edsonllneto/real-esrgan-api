@@ -1,6 +1,4 @@
 flask
 numpy
 Pillow
-torch
-torchvision
 realesrgan
