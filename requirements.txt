@@ -14,18 +14,24 @@ httpx==0.25.2
 # Async support
 aiofiles==23.2.1
 
-# Real-ESRGAN Python version
-realesrgan
+# Basic scientific computing
+numpy==1.24.3
 
-# Computer vision
-opencv-python-headless
+# Computer vision (headless version for containers)
+opencv-python-headless==4.8.1.78
 
-# PyTorch CPU version for efficiency
-torch --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision --extra-index-url https://download.pytorch.org/whl/cpu
+# PyTorch CPU version (smaller, more reliable)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.1+cpu
+torchvision==0.15.2+cpu
 
-# Numerical processing
-numpy
+# Real-ESRGAN and dependencies
+basicsr==1.4.2
+realesrgan==0.3.0
+
+# Additional dependencies that might be needed
+gfpgan==1.3.8
+facexlib==0.3.0
 
 # Optional: better performance
 python-json-logger==2.0.7
