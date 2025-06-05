@@ -1,6 +1,6 @@
 """
 Real-ESRGAN API - FastAPI application for image upscaling
-Optimized for low memory VPS using NCNN-Vulkan backend
+Optimized for low memory VPS using hybrid NCNN-Vulkan/Python backend
 """
 
 import os
@@ -16,12 +16,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 
-from app.upscaler import RealESRGANUpscaler
+from app.upscaler_hybrid import RealESRGANUpscaler
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Real-ESRGAN API",
-    description="AI Image Upscaling API using Real-ESRGAN NCNN-Vulkan",
+    description="AI Image Upscaling API using Real-ESRGAN (NCNN-Vulkan + Python fallback)",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -46,10 +46,12 @@ Path("temp").mkdir(exist_ok=True)
 @app.get("/")
 async def root():
     """Root endpoint with API info"""
+    backend_info = upscaler.get_memory_usage_estimate(512, 512, 4)
     return {
         "message": "Real-ESRGAN API",
         "version": "1.0.0",
         "status": "running",
+        "backend": backend_info["backend"],
         "endpoints": {
             "upscale": "/upscale",
             "health": "/health",
@@ -62,21 +64,25 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     try:
-        # Check if upscaler binary exists
+        # Check if upscaler is available
         binary_exists = upscaler.check_binary()
         models_exist = upscaler.check_models()
+        backend_info = upscaler.get_memory_usage_estimate(512, 512, 4)
         
         return {
-            "status": "healthy" if binary_exists and models_exist else "unhealthy",
+            "status": "healthy" if models_exist else "degraded",
             "binary_available": binary_exists,
             "models_available": models_exist,
+            "backend": backend_info["backend"],
             "supported_scales": [2, 4, 8],
-            "max_file_size": "2MB"
+            "max_file_size": "2MB",
+            "memory_efficient": True
         }
     except Exception as e:
         return {
             "status": "unhealthy",
-            "error": str(e)
+            "error": str(e),
+            "backend": "unknown"
         }
 
 
@@ -85,10 +91,12 @@ async def get_available_models():
     """Get list of available models"""
     try:
         models = upscaler.list_models()
+        backend_info = upscaler.get_memory_usage_estimate(512, 512, 4)
         return {
             "models": models,
             "default_model": "realesrgan-x4plus",
-            "supported_scales": [2, 4, 8]
+            "supported_scales": [2, 4, 8],
+            "backend": backend_info["backend"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -137,6 +145,9 @@ async def upscale_image(
             image = image.convert('RGB')
         image.save(input_path, 'PNG')
         
+        # Get memory estimate
+        memory_info = upscaler.get_memory_usage_estimate(image.width, image.height, scale)
+        
         # Process with Real-ESRGAN
         success = await upscaler.upscale(
             input_path=input_path,
@@ -163,7 +174,9 @@ async def upscale_image(
             "upscaled_size": f"{output_image.width}x{output_image.height}",
             "scale_used": scale,
             "model_used": model,
+            "backend": memory_info["backend"],
             "format": "PNG",
+            "memory_used_mb": memory_info["total_estimated_mb"],
             "base64_image": base64_result
         }
         
@@ -175,6 +188,35 @@ async def upscale_image(
         for path in [input_path, output_path]:
             if os.path.exists(path):
                 os.remove(path)
+
+
+@app.get("/status")
+async def get_status():
+    """Get detailed API status"""
+    try:
+        backend_info = upscaler.get_memory_usage_estimate(1024, 1024, 4)
+        models = upscaler.list_models()
+        
+        return {
+            "api_version": "1.0.0",
+            "backend": backend_info["backend"],
+            "available_models": models,
+            "supported_scales": [2, 4, 8],
+            "max_file_size_mb": 2,
+            "estimated_memory_usage": {
+                "base_mb": backend_info["base_memory_mb"],
+                "per_1024x1024_image_mb": backend_info["processing_memory_mb"],
+                "recommended_tile_size": backend_info["recommended_tile_size"]
+            },
+            "features": {
+                "base64_output": True,
+                "multiple_scales": True,
+                "memory_optimized": True,
+                "auto_cleanup": True
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
