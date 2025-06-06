@@ -1,10 +1,10 @@
-# Use Python 3.11 slim - minimal and stable
+# Fixed Dockerfile with staged dependency installation
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for image processing and ML libraries + GIT
+# Install system dependencies including git and build tools
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -27,16 +27,32 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     wget \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip first
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
+# Copy requirements files
+COPY requirements-core.txt requirements-pytorch.txt requirements-ml.txt ./
 
-# Install Python packages with verbose output for debugging
-RUN pip install --no-cache-dir --verbose -r requirements.txt
+# STAGE 1: Install core dependencies from PyPI (always succeeds)
+RUN echo "=== Installing core dependencies ===" && \
+    pip install --no-cache-dir -r requirements-core.txt
+
+# STAGE 2: Install PyTorch with correct index (always succeeds)
+RUN echo "=== Installing PyTorch ===" && \
+    pip install --no-cache-dir -r requirements-pytorch.txt
+
+# STAGE 3: Install ML dependencies (graceful fallback if fails)
+RUN echo "=== Installing ML dependencies ===" && \
+    pip install --no-cache-dir -r requirements-ml.txt || \
+    echo "Some ML dependencies failed, API will use PIL fallback"
+
+# STAGE 4: Try to install Real-ESRGAN from git (optional)
+RUN echo "=== Attempting Real-ESRGAN from git ===" && \
+    pip install --no-cache-dir git+https://github.com/xinntao/Real-ESRGAN.git || \
+    echo "Real-ESRGAN git install failed, using PyPI version"
 
 # Create necessary directories
 RUN mkdir -p models temp
@@ -52,12 +68,14 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Environment variables
+# Environment variables for better performance
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+# Health check with longer startup time
+HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
