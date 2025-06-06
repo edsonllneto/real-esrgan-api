@@ -1,0 +1,26 @@
+# Core dependencies from PyPI (always installed first)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Image processing
+Pillow==10.1.0
+
+# File handling
+python-multipart==0.0.6
+
+# HTTP and async
+httpx==0.25.2
+aiofiles==23.2.1
+
+# Basic scientific computing
+numpy==1.24.3
+
+# Computer vision (headless version for containers)
+opencv-python-headless==4.8.1.78
+
+# Additional image processing
+scikit-image==0.22.0
+
+# Optional: logging
+python-json-logger==2.0.7
