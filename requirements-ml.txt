@@ -1,0 +1,17 @@
+# Machine Learning dependencies (optional - will fallback gracefully)
+# Install these from PyPI after core dependencies
+
+# Real-ESRGAN dependencies
+basicsr==1.4.2
+timm==0.6.13
+lpips==0.1.4
+
+# Real-ESRGAN from PyPI (fallback if git install fails)
+realesrgan==0.3.0
+
+# Additional ML libraries
+gfpgan==1.3.8
+facexlib==0.3.0
+
+# Additional ML metrics
+torchmetrics==0.11.4
