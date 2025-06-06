@@ -163,10 +163,10 @@ async def upscale_image_file(
     if scale not in [2, 4, 8]:
         raise HTTPException(status_code=400, detail="Scale must be 2, 4, or 8")
     
-    if file.size > 2 * 1024 * 1024:  # 2MB limit
+    if file.size and file.size > 2 * 1024 * 1024:  # 2MB limit
         raise HTTPException(status_code=413, detail="File too large. Max size: 2MB")
     
-    if not file.content_type.startswith('image/'):
+    if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
     
     # Read file content
@@ -205,17 +205,26 @@ async def upscale_image_base64(request: UpscaleBase64Request):
     if not request.image_base64:
         raise HTTPException(status_code=400, detail="image_base64 is required")
     
+    # Clean base64 string (remove data URL prefix if present)
+    image_base64 = request.image_base64
+    if "," in image_base64:
+        image_base64 = image_base64.split(",")[-1]
+    
     # Validate base64
     try:
         # Test decode
-        image_data = base64.b64decode(request.image_base64)
+        image_data = base64.b64decode(image_base64)
         if len(image_data) > 2 * 1024 * 1024:  # 2MB limit
             raise HTTPException(status_code=413, detail="Image too large. Max size: 2MB")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+        
+        # Try to open as image to validate
+        Image.open(BytesIO(image_data))
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 image data: {str(e)}")
     
     return await _process_upscale(
-        request.image_base64, 
+        image_base64, 
         request.scale, 
         request.model, 
         request.format
@@ -237,8 +246,12 @@ async def _process_upscale(image_base64: str, scale: int, model: Optional[str], 
         # Convert to PNG for processing
         image = Image.open(BytesIO(image_data))
         original_format = image.format or "UNKNOWN"
+        
+        # Convert modes that might cause issues
         if image.mode in ('RGBA', 'LA', 'P'):
             image = image.convert('RGB')
+        
+        # Save as PNG for processing
         image.save(input_path, 'PNG')
         
         # Get memory estimate
@@ -295,6 +308,9 @@ async def _process_upscale(image_base64: str, scale: int, model: Optional[str], 
             "base64_image": base64_result
         }
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         error_msg = str(e)
         if "Real-ESRGAN" in error_msg:
