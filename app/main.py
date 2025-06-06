@@ -1,6 +1,7 @@
 """
 Real-ESRGAN API - FastAPI application for image upscaling
 Optimized for low memory VPS with multiple fallback backends
+Support for both file upload and base64 input
 """
 
 import os
@@ -15,6 +16,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
+from pydantic import BaseModel
 
 from app.upscaler_simple import RealESRGANUpscaler
 
@@ -36,6 +38,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Pydantic models for base64 endpoint
+class UpscaleBase64Request(BaseModel):
+    image_base64: str
+    scale: int = 4
+    model: Optional[str] = None
+    format: str = "auto"  # auto, jpeg, png
+
+class UpscaleResponse(BaseModel):
+    success: bool
+    original_size: str
+    upscaled_size: str
+    scale_used: int
+    model_used: str
+    backend: str
+    backend_quality: str
+    format: str
+    memory_used_mb: float
+    processing_info: dict
+    base64_image: str
+
 # Initialize upscaler
 upscaler = RealESRGANUpscaler()
 
@@ -54,11 +76,16 @@ async def root():
         "backend": backend_info["backend"],
         "backend_quality": backend_info.get("quality", "unknown"),
         "endpoints": {
-            "upscale": "/upscale",
+            "upscale": "/upscale (multipart file upload)",
+            "upscale_base64": "/upscale-base64 (JSON with base64)",
             "health": "/health",
             "models": "/models",
             "status": "/status"
-        }
+        },
+        "supported_input_methods": [
+            "multipart-form-data (file upload)",
+            "application/json (base64 string)"
+        ]
     }
 
 
@@ -86,6 +113,7 @@ async def health_check():
             },
             "supported_scales": [2, 4, 8],
             "max_file_size": "2MB",
+            "input_methods": ["multipart-form-data", "base64-json"],
             "memory_efficient": True
         }
     except Exception as e:
@@ -114,13 +142,13 @@ async def get_available_models():
 
 
 @app.post("/upscale")
-async def upscale_image(
+async def upscale_image_file(
     file: UploadFile = File(...),
     scale: int = Form(4),
     model: Optional[str] = Form(None)
 ):
     """
-    Upscale image using Real-ESRGAN (multiple backends)
+    Upscale image using file upload (multipart-form-data)
     
     Args:
         file: Image file (jpg, png, webp) - max 2MB
@@ -141,18 +169,74 @@ async def upscale_image(
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
     
+    # Read file content
+    content = await file.read()
+    
+    # Convert to base64 and process
+    image_base64 = base64.b64encode(content).decode('utf-8')
+    
+    return await _process_upscale(image_base64, scale, model, "auto")
+
+
+@app.post("/upscale-base64", response_model=UpscaleResponse)
+async def upscale_image_base64(request: UpscaleBase64Request):
+    """
+    Upscale image using base64 input (JSON)
+    
+    Args:
+        request: JSON object with base64 image and parameters
+    
+    Example request:
+    {
+        "image_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+        "scale": 4,
+        "model": "auto",
+        "format": "auto"
+    }
+    
+    Returns:
+        JSON with base64 encoded upscaled image
+    """
+    
+    # Validate inputs
+    if request.scale not in [2, 4, 8]:
+        raise HTTPException(status_code=400, detail="Scale must be 2, 4, or 8")
+    
+    if not request.image_base64:
+        raise HTTPException(status_code=400, detail="image_base64 is required")
+    
+    # Validate base64
+    try:
+        # Test decode
+        image_data = base64.b64decode(request.image_base64)
+        if len(image_data) > 2 * 1024 * 1024:  # 2MB limit
+            raise HTTPException(status_code=413, detail="Image too large. Max size: 2MB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    
+    return await _process_upscale(
+        request.image_base64, 
+        request.scale, 
+        request.model, 
+        request.format
+    )
+
+
+async def _process_upscale(image_base64: str, scale: int, model: Optional[str], output_format: str):
+    """Internal function to process upscaling (shared by both endpoints)"""
+    
     # Generate unique filename
     file_id = str(uuid.uuid4())
     input_path = f"temp/input_{file_id}.png"
     output_path = f"temp/output_{file_id}.png"
     
     try:
-        # Save uploaded file
-        content = await file.read()
+        # Decode base64 to image
+        image_data = base64.b64decode(image_base64)
         
         # Convert to PNG for processing
-        image = Image.open(BytesIO(content))
-        original_format = image.format
+        image = Image.open(BytesIO(image_data))
+        original_format = image.format or "UNKNOWN"
         if image.mode in ('RGBA', 'LA', 'P'):
             image = image.convert('RGB')
         image.save(input_path, 'PNG')
@@ -184,6 +268,14 @@ async def upscale_image(
         # Get output image info
         output_image = Image.open(output_path)
         
+        # Determine output format
+        final_format = "PNG"
+        if output_format == "auto":
+            if original_format in ["JPEG", "JPG"]:
+                final_format = "JPEG"
+        elif output_format.upper() in ["JPEG", "JPG"]:
+            final_format = "JPEG"
+        
         return {
             "success": True,
             "original_size": f"{image.width}x{image.height}",
@@ -192,13 +284,13 @@ async def upscale_image(
             "model_used": model or f"{upscaler.active_backend}-default",
             "backend": upscaler.active_backend,
             "backend_quality": memory_info.get("quality", "unknown"),
-            "format": "PNG",
+            "format": final_format,
             "memory_used_mb": memory_info["total_estimated_mb"],
-            "original_format": original_format,
             "processing_info": {
                 "backend": upscaler.active_backend,
                 "tile_size": memory_info.get("recommended_tile_size"),
-                "quality_level": memory_info.get("quality")
+                "quality_level": memory_info.get("quality"),
+                "original_format": original_format
             },
             "base64_image": base64_result
         }
@@ -247,6 +339,20 @@ async def get_status():
             "available_models": models,
             "supported_scales": [2, 4, 8],
             "max_file_size_mb": 2,
+            "input_methods": [
+                {
+                    "endpoint": "/upscale",
+                    "method": "POST",
+                    "content_type": "multipart/form-data",
+                    "description": "File upload"
+                },
+                {
+                    "endpoint": "/upscale-base64", 
+                    "method": "POST",
+                    "content_type": "application/json",
+                    "description": "Base64 string input"
+                }
+            ],
             "estimated_memory_usage": {
                 "base_mb": backend_info["base_memory_mb"],
                 "per_1024x1024_image_mb": backend_info["processing_memory_mb"],
@@ -254,6 +360,8 @@ async def get_status():
             },
             "features": {
                 "base64_output": True,
+                "base64_input": True,
+                "file_upload": True,
                 "multiple_scales": True,
                 "memory_optimized": True,
                 "auto_cleanup": True,
@@ -279,7 +387,11 @@ async def debug_info():
         },
         "check_binary": upscaler.check_binary(),
         "check_models": upscaler.check_models(),
-        "list_models": upscaler.list_models()
+        "list_models": upscaler.list_models(),
+        "endpoints": {
+            "file_upload": "/upscale",
+            "base64_json": "/upscale-base64"
+        }
     }
 
 
