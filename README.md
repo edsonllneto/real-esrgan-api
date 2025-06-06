@@ -6,12 +6,13 @@ AI-powered image upscaling API with **intelligent fallback system** - guaranteed
 
 - **🛡️ Fault-Tolerant**: Multiple backends with automatic fallback
 - **🎯 Always Works**: PIL fallback ensures 100% uptime
-- **⚡ Smart Backend**: Uses best available (Real-ESRGAN → PIL)
+- **⚡ Smart Backend**: Uses best available (Real-ESRGAN ➜ PIL)
 - **🔍 Transparent**: API tells you which backend is active
 - **💾 Low Memory**: Adapts to your VPS resources (1-4GB)
 - **📊 Multiple Scales**: 2x, 4x, and 8x upscaling
 - **🔗 REST API**: Simple HTTP endpoints
 - **📦 Docker Ready**: One-click EasyPanel deployment
+- **🔄 Dual Input**: Both file upload AND base64 input
 
 ## 🏗️ **Backend Architecture**
 
@@ -69,6 +70,8 @@ GET /status
 ```
 
 ### **🖼️ Image Upscaling**
+
+#### **📁 Method 1: File Upload (multipart-form-data)**
 ```bash
 POST /upscale
 ```
@@ -81,7 +84,24 @@ curl -X POST "https://your-domain.easypanel.host/upscale" \
   -F "model=auto"
 ```
 
-**Response:**
+#### **🔤 Method 2: Base64 JSON (NEW!)**
+```bash
+POST /upscale-base64
+```
+
+**Example with cURL:**
+```bash
+curl -X POST "https://your-domain.easypanel.host/upscale-base64" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+    "scale": 4,
+    "model": "auto",
+    "format": "auto"
+  }'
+```
+
+**Response (both methods):**
 ```json
 {
   "success": true,
@@ -130,7 +150,7 @@ Visit: `https://your-domain.easypanel.host/docs`
 
 ## 💻 **Usage Examples**
 
-### **Python Client:**
+### **Python Client (File Upload):**
 ```python
 import requests
 import base64
@@ -160,6 +180,42 @@ def upscale_image(image_path, scale=4):
 upscale_image("photo.jpg", scale=4)
 ```
 
+### **Python Client (Base64):**
+```python
+import requests
+import base64
+
+def upscale_image_base64(image_path, scale=4):
+    url = "https://your-domain.easypanel.host/upscale-base64"
+    
+    # Convert image to base64
+    with open(image_path, 'rb') as f:
+        image_base64 = base64.b64encode(f.read()).decode('utf-8')
+    
+    payload = {
+        "image_base64": image_base64,
+        "scale": scale,
+        "model": "auto",
+        "format": "auto"
+    }
+    
+    response = requests.post(url, json=payload)
+    
+    if response.status_code == 200:
+        result = response.json()
+        print(f"Backend: {result['backend']}, Quality: {result['backend_quality']}")
+        
+        # Save result
+        image_data = base64.b64decode(result['base64_image'])
+        with open('upscaled.png', 'wb') as f:
+            f.write(image_data)
+        return True
+    return False
+
+# Use it
+upscale_image_base64("photo.jpg", scale=4)
+```
+
 ### **JavaScript/Node.js:**
 ```javascript
 const FormData = require('form-data');
@@ -187,20 +243,83 @@ async function upscaleImage(imagePath, scale = 4) {
 }
 ```
 
+### **JavaScript (Base64):**
+```javascript
+async function upscaleImageBase64(imageBase64, scale = 4) {
+    const response = await fetch('https://your-domain.easypanel.host/upscale-base64', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            image_base64: imageBase64,
+            scale: scale,
+            model: "auto",
+            format: "auto"
+        })
+    });
+    
+    const result = await response.json();
+    return result;
+}
+```
+
 ## 🔧 **N8N Integration**
 
-**HTTP Request Node Configuration:**
+### **HTTP Request Node Configuration:**
 ```
 Method: POST
-URL: https://your-domain.easypanel.host/upscale
-Body Type: Multipart-Form-Data
+URL: https://your-domain.easypanel.host/upscale-base64
 
-Parameters:
-- file: [Binary Data] 
-- scale: 4
-- model: auto
+Headers:
+Content-Type: application/json
+
+Body:
+{
+  "image_base64": "{{$json.your_base64_image}}",
+  "scale": 4,
+  "model": "auto", 
+  "format": "png"
+}
 
 Timeout: 120000ms (2 minutes)
+```
+
+### **Complete N8N Workflow Example:**
+1. **Read Binary File** → Load image
+2. **Function Node** → Convert to base64:
+```javascript
+return items.map(item => {
+  const binaryData = item.binary.data;
+  return {
+    json: {
+      image_base64: binaryData.data,
+      originalName: binaryData.fileName
+    }
+  };
+});
+```
+3. **HTTP Request** → Call API
+4. **Function Node** → Process result:
+```javascript
+return items.map(item => {
+  const base64Image = item.json.base64_image;
+  return {
+    json: {
+      success: item.json.success,
+      backend: item.json.backend,
+      original_size: item.json.original_size,
+      upscaled_size: item.json.upscaled_size
+    },
+    binary: {
+      data: {
+        data: base64Image,
+        mimeType: 'image/png',
+        fileName: 'upscaled_image.png'
+      }
+    }
+  };
+});
 ```
 
 ## 📊 **Performance Comparison**
@@ -211,7 +330,7 @@ Timeout: 120000ms (2 minutes)
 | PIL Advanced | ⭐⭐⭐⭐☆ | 5-15s | 1-2GB | 100% |
 | NCNN-Vulkan | ⭐⭐⭐⭐⭐ | 5-15s | 1.5-2GB | 85% |
 
-## 🛠️ **Troubleshooting**
+## 🟠 **Troubleshooting**
 
 ### **Common Scenarios:**
 
@@ -240,7 +359,7 @@ Timeout: 120000ms (2 minutes)
 - PIL fallback is faster but lower quality
 - Check backend in use via `/health`
 
-## 🔄 **Deployment Issues?**
+## 🔧 **Deployment Issues?**
 
 ### **If Build Fails:**
 1. **Delete** current service in EasyPanel
@@ -262,14 +381,14 @@ MIT License - see LICENSE file for details.
 
 - **Real-ESRGAN**: Xintao Wang et al.
 - **PyTorch**: Meta AI Research
-- **FastAPI**: Sebastián Ramirez
+- **FastAPI**: Sebastián Ramírez
 
 ---
 
 ## 🎯 **Ready to Deploy?**
 
 1. **Copy repository URL**: `https://github.com/edsonllneto/real-esrgan-api`
-2. **Go to EasyPanel** → Create Service → GitHub Repository
+2. **Go to EasyPanel** ➜ Create Service ➜ GitHub Repository
 3. **Configure** with 4GB RAM, 15min timeout
 4. **Deploy** and test!
 
